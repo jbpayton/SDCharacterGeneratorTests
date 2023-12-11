@@ -1,0 +1,4 @@
+transformers~=4.35.2
+torch~=2.1.1+cu118
+diffusers~=0.24.0
+tqdm~=4.66.1
