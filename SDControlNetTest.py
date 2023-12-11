@@ -36,15 +36,15 @@ pose_reference.save("pose_reference.png")
 
 
 
-character_distinctives = "A cute brown haired girl with short hair. with blue eyes"
-mood = "excited"
-wearing = "white lab coat, white shirt, black tie, black pants, black stockings, black shoes"
-background = "solid color blue background"
-camera_angle = "from the front"
-camera_direction = "looking forward"
-image_quality = "visual novel character, best quality, 4K, high resolution"
+character_distinctives = "1girl, short brown hair. blue eyes"
+mood = "excited face"
+wearing = "white lab coat, white shirt, black tie, black pants"
+background = "(no background)"
+camera_angle = ""
+camera_direction = ""
+image_quality = "professional line art concept illustration, 4k, high resolution"
 
-negative_prompt = "(worst quality, low quality:1.4), background, (zombie, interlocked fingers), extra arms"
+negative_prompt = "text, (worst quality, low quality:1.4), (zombie, interlocked fingers), extra arms"
 
 g = torch.Generator(device="cuda")
 torch.backends.cudnn.benchmark = False
@@ -57,7 +57,7 @@ image = pipeline(prompt=prompt, negative_prompt=negative_prompt, image=pose_refe
 image.save("SDControlNetTest0.png")
 
 g.manual_seed(0)
-mood = "angry"
+mood = "angry face"
 prompt = f"{character_distinctives}, {mood}, {wearing}, {background}, {camera_angle}, {camera_direction}, {image_quality}"
 image = pipeline(prompt=prompt, negative_prompt=negative_prompt, image=pose_reference, guidance_scale=8,
                  num_inference_steps=40, generator=g).images[0]
