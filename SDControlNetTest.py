@@ -6,6 +6,7 @@ from diffusers import StableDiffusionControlNetPipeline, StableDiffusionPipeline
 import torch
 from controlnet_aux import OpenposeDetector
 from diffusers.utils import load_image
+import json
 
 
 # supress future warnings
@@ -69,17 +70,46 @@ pipeline.enable_model_cpu_offload()
 # enable efficient implementations using xformers for faster inference
 pipeline.enable_xformers_memory_efficient_attention()
 
+save_intermediate = True
+
+# JSON structure
+prompt_json = '''
+{
+  "character_base": "1girl",
+  "hair": "long blond twintails",
+  "eyes": "red eyes",
+  "face": "pretty childlike face, detailed face",
+  "mood": "neutral face",
+  "wearing": "black, egl, gothic lolita dress, black jacket with red crosses, black bows in hair",
+  "image_quality": "intricate, visual novel style, beautiful, masterpiece, detailed eyes",
+  "pose_reference": "poseref.png"
+}
+'''
+prompt_data = json.loads(prompt_json)
+
 # load control net pose reference
-image_input = load_image("poseref.png")
+image_input = load_image(prompt_data["pose_reference"])
 pose_reference = openpose(image_input)
-pose_reference.save("pose_reference.png")
 
-character_distinctives = "1girl, short brown hair. blue eyes, detailed face"
+if save_intermediate:
+    pose_reference.save("pose_reference.png")
+
+character_base = prompt_data["character_base"]
+hair = prompt_data["hair"]
+eyes = prompt_data["eyes"]
+face = prompt_data["face"]
+mood = prompt_data["mood"]
+wearing = prompt_data["wearing"]
+image_quality = prompt_data["image_quality"]
+
+
+# Building the prompt using the specified format
+
+
 background = "isolated on green background"
-mood = "excited face"
-wearing = "white lab coat, white shirt, black tie, black pants"
-image_quality = "intricate, visual novel style, beautiful, masterpiece, detailed eyes, 4K, high resolution <lora:GreenScreen_N:1.5>"
+utility_instructions = "4K, high resolution, <lora:GreenScreen_N:1.5>"
 
+prompt = f"{character_base}, {hair}, {eyes}, {face}, {background}, {mood}, {wearing}, {image_quality}, {utility_instructions}"
 negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, slutty"
 #negative_prompt = "verybadimagenegative_v1.3, immodest"
 
@@ -87,7 +117,7 @@ negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie
 g = torch.Generator(device="cuda")
 
 g.manual_seed(1)
-prompt = f"{character_distinctives}, {background}, {mood}, {wearing}, {image_quality}"
+prompt = f"{character_base}, {hair},{eyes},{face},{background}, {mood}, {wearing}, {image_quality}, {utility_instructions}"
 low_res_latents = pipeline(prompt=prompt,
                            negative_prompt=negative_prompt,
                            image=pose_reference,
@@ -103,7 +133,9 @@ low_res_latents = pipeline(prompt=prompt,
 with torch.no_grad():
     image = pipeline.decode_latents(low_res_latents)
 image = pipeline.numpy_to_pil(image)[0]
-image.save("SDControlNetTest0.png")
+
+if save_intermediate:
+    image.save("SDControlNetTest0.png")
 
 g.manual_seed(1)
 upscaled_image_latents = upscaler(
