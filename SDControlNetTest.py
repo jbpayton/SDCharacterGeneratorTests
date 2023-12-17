@@ -7,6 +7,8 @@ import torch
 from controlnet_aux import OpenposeDetector
 from diffusers.utils import load_image
 import json
+from compel import Compel
+from GreenScreenRemover import remove_green_screen_pil
 
 
 # supress future warnings
@@ -65,6 +67,12 @@ filtered_components = {k: v for k, v in pipeline.components.items() if k != 'con
 # Initialize the Img2Img pipeline with the filtered components
 img2img = StableDiffusionImg2ImgPipeline(**filtered_components)
 
+compel = Compel(tokenizer=pipeline.tokenizer,
+                text_encoder=pipeline.text_encoder,
+                truncate_long_prompts=False,
+                device="cuda")
+
+
 pipeline.enable_model_cpu_offload()
 
 # enable efficient implementations using xformers for faster inference
@@ -76,7 +84,7 @@ save_intermediate = True
 prompt_json = '''
 {
   "character_base": "1girl",
-  "hair": "long blond twintails",
+  "hair": "short blond hair",
   "eyes": "red eyes",
   "face": "pretty childlike face, detailed face",
   "mood": "neutral face",
@@ -94,6 +102,7 @@ pose_reference = openpose(image_input)
 if save_intermediate:
     pose_reference.save("pose_reference.png")
 
+# Building the prompt using the specified format
 character_base = prompt_data["character_base"]
 hair = prompt_data["hair"]
 eyes = prompt_data["eyes"]
@@ -102,95 +111,66 @@ mood = prompt_data["mood"]
 wearing = prompt_data["wearing"]
 image_quality = prompt_data["image_quality"]
 
-
-# Building the prompt using the specified format
-
-
-background = "isolated on green background"
+background = "isolated on green background, solid background"
 utility_instructions = "4K, high resolution, <lora:GreenScreen_N:1.5>"
 
 prompt = f"{character_base}, {hair}, {eyes}, {face}, {background}, {mood}, {wearing}, {image_quality}, {utility_instructions}"
-negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, slutty"
-#negative_prompt = "verybadimagenegative_v1.3, immodest"
+negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, pornographic"
 
+with torch.no_grad():
+    prompt_embeds = compel(prompt)
+    negative_prompt_embeds = compel(negative_prompt)
+
+    [prompt_embeds, negative_prompt_embeds] = compel.pad_conditioning_tensors_to_same_length([prompt_embeds,
+                                                                                              negative_prompt_embeds])
 
 g = torch.Generator(device="cuda")
-
 g.manual_seed(1)
+
 prompt = f"{character_base}, {hair},{eyes},{face},{background}, {mood}, {wearing}, {image_quality}, {utility_instructions}"
-low_res_latents = pipeline(prompt=prompt,
-                           negative_prompt=negative_prompt,
+low_res_latents = pipeline(prompt_embeds=prompt_embeds,
+                           negative_prompt_embeds=negative_prompt_embeds,
                            image=pose_reference,
                            guidance_scale=7,
-                           num_inference_steps=20,
+                           num_inference_steps=10,
                            generator=g,
                            clip_skip=2,
                            height=768,
                            width=512,
                            output_type="latent"
                            ).images
-
-with torch.no_grad():
-    image = pipeline.decode_latents(low_res_latents)
-image = pipeline.numpy_to_pil(image)[0]
-
 if save_intermediate:
-    image.save("SDControlNetTest0.png")
+    with torch.no_grad():
+        image = pipeline.decode_latents(low_res_latents)
+        image = pipeline.numpy_to_pil(image)[0]
+        image.save("SDControlNetTest0.png")
 
 g.manual_seed(1)
 upscaled_image_latents = upscaler(
     prompt=prompt,
     image=low_res_latents,
     num_inference_steps=20,
-    guidance_scale=0,
+    guidance_scale=1,
     generator=g,
     output_type="latent"
 ).images
 
-with torch.no_grad():
-    image = pipeline.decode_latents(upscaled_image_latents)
-image = pipeline.numpy_to_pil(image)[0]
-image.save("SDControlNetTest0-Upscaled.png")
+if save_intermediate:
+    with torch.no_grad():
+        image = pipeline.decode_latents(upscaled_image_latents)
+    image = pipeline.numpy_to_pil(image)[0]
+    image.save("SDControlNetTest0-Upscaled.png")
 
-upscaled_image_2 = img2img(prompt=prompt,
-                           negative_prompt=negative_prompt,
+upscaled_image_2 = img2img(prompt_embeds=prompt_embeds,
+                           negative_prompt_embeds=negative_prompt_embeds,
                            image=upscaled_image_latents,
-                           num_inference_steps=20,
+                           num_inference_steps=40,
                            guidance_scale=7,
                            generator=g,
                            clip_skip=2,
                            strength=0.5).images
 upscaled_image_2[0].save("SDControlNetTest0-Upscaled_2.png")
 
-
-'''
-g.manual_seed(1)
-mood = "angry face"
-prompt = f"{character_distinctives}, {background}, {mood}, {wearing}, {image_quality}"
-low_res_latents = pipeline(prompt=prompt,
-                           negative_prompt=negative_prompt,
-                           image=pose_reference,
-                           guidance_scale=5,
-                           num_inference_steps=20,
-                           generator=g,
-                           clip_skip=2,
-                           height=768,
-                           width=512,
-                           output_type="latent"
-                           ).images
-
-with torch.no_grad():
-    image = pipeline.decode_latents(low_res_latents)
-image = pipeline.numpy_to_pil(image)[0]
-image.save("SDControlNetTest1.png")
-
-g.manual_seed(1)
-upscaled_image = upscaler(
-    prompt=prompt,
-    image=low_res_latents,
-    num_inference_steps=20,
-    guidance_scale=5,
-    generator=g,
-).images[0]
-upscaled_image.save("SDControlNetTest1-Upscaled.png")
-'''
+# do chroma key (i.e., turn the green background into transparent)
+green_removed_image = remove_green_screen_pil(upscaled_image_2[0], blur=4)
+green_removed_image.save("SDControlNetTest0-Upscaled_2-GreenScreen.png")
