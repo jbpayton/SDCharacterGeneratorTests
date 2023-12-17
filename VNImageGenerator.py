@@ -4,12 +4,18 @@ from datetime import datetime
 import torch
 from diffusers import StableDiffusionControlNetPipeline, StableDiffusionLatentUpscalePipeline, \
     DPMSolverMultistepScheduler, StableDiffusionImg2ImgPipeline, ControlNetModel, StableDiffusionInpaintPipeline
-from controlnet_aux import OpenposeDetector
+from controlnet_aux.processor import Processor
 from diffusers.utils import load_image
 from compel import Compel
 from GreenScreenRemover import remove_green_screen_pil
 from PIL import Image
 from FaceMasker import create_face_mask_pil
+
+# supress future warnings
+import warnings
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=UserWarning)
 
 
 class VNImageGenerator:
@@ -21,7 +27,7 @@ class VNImageGenerator:
         self.background_transparency = False
 
         # Load ControlNet and Openpose models
-        self.openpose = OpenposeDetector.from_pretrained('lllyasviel/ControlNet')
+        self.openpose = Processor("openpose_full")
         controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-openpose", torch_dtype=torch.float16)
 
         # Load the main pipeline
@@ -78,13 +84,12 @@ class VNImageGenerator:
         for path, weight_name in lora_weights:
             self.pipeline.load_lora_weights(path, weight_name=weight_name)
 
-    def change_facial_expression(self, latents, prompt_json, expression, save_intermediate=False):
+    def change_facial_expression(self, latents, prompt_data, expression, save_intermediate=False):
         with torch.no_grad():
             image = self.pipeline.decode_latents(latents)
             image = self.pipeline.numpy_to_pil(image)[0]
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        prompt_data = json.loads(prompt_json)
         prompt_data["expression"] = expression
         height = prompt_data.get("height", 768)
         width = prompt_data.get("width", 512)
@@ -122,7 +127,7 @@ class VNImageGenerator:
                                        clip_skip=2,
                                        height=height,
                                        width=width,
-                                       strength=0.5,
+                                       strength=0.6,
                                        output_type="latent").images
 
         if save_intermediate:
@@ -132,15 +137,14 @@ class VNImageGenerator:
                 image.save(f"VNImageGenerator-{timestamp}-S-FaceChange-.png")
         return facial_change
 
-    def text_to_image(self, prompt_json, save_intermediate=False):
+    def text_to_image(self, prompt_data, save_intermediate=False):
         if save_intermediate:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-        prompt_data = json.loads(prompt_json)
         pose_reference = prompt_data.get("pose_reference", None)
         if pose_reference is not None:
             image_input = load_image(prompt_data["pose_reference"])
-            pose_reference = self.openpose(image_input)
+            pose_reference = self.openpose(image_input, to_pil=True)
 
             if save_intermediate:
                 pose_reference.save(f"VNImageGenerator-{timestamp}-0-pose_reference.png")
@@ -199,8 +203,7 @@ class VNImageGenerator:
 
         return low_res_latents
 
-    def latent_upscale_and_refine(self, low_res_latents, prompt_json, expression_override=None, save_intermediate=False):
-        prompt_data = json.loads(prompt_json)
+    def latent_upscale_and_refine(self, low_res_latents, prompt_data, expression_override=None, save_intermediate=False):
         if save_intermediate:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         # first, get the non-prompt specific data from the prompt_data structure
@@ -250,7 +253,7 @@ class VNImageGenerator:
                                         guidance_scale=7,
                                         generator=g,
                                         clip_skip=2,
-                                        strength=0.5).images
+                                        strength=0.35).images
         if save_intermediate:
             upscaled_image_2[0].save(f"VNImageGenerator-{timestamp}-3-Img2Img.png")
         final_image = upscaled_image_2[0]
@@ -295,6 +298,45 @@ class VNImageGenerator:
         return negative_prompt, prompt
 
 
+def generate_character_images(generator, character_prompt_json):
+    # Generate image
+    # JSON structure
+    base_prompt_json = '''
+            {
+              "character_base": "girl",
+              "hair": "short blond hair",
+              "eyes": "blue eyes",
+              "face": "pretty childlike face, detailed face",
+              "expression": "happy",
+              "wearing": "traditional japanese clothing, kimono, yukata",
+              "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
+              "pose_reference": "pose_references/waist_up_arms_down.png",
+              "seed": 1
+            }
+            '''
+    prompt_data = json.loads(base_prompt_json)
+
+    # override the default values with the ones from the json
+    prompt_data.update(character_prompt_json)
+
+    character_name = prompt_data.get("name", "character")
+
+    low_res_latents = generator.text_to_image(prompt_data)
+    character_img = generator.latent_upscale_and_refine(low_res_latents, prompt_data)
+    character_img.save(f"{character_name}-happy.png")
+
+    facial_expressions = ["sad", "angry", "surprised", "neutral",
+                          "embarrassed", "smug", "scared", "disgusted",
+                          "laughing", "yelling", "winking", "blushing"]
+
+    for facial_expression in facial_expressions:
+        changed_latents = generator.change_facial_expression(low_res_latents, prompt_data, facial_expression)
+        character_img = generator.latent_upscale_and_refine(changed_latents,
+                                                            prompt_data,
+                                                            expression_override=facial_expression)
+        character_img.save(f"{character_name}-{facial_expression}.png")
+
+
 if __name__ == '__main__':
 
     chara_test = True
@@ -315,31 +357,15 @@ if __name__ == '__main__':
         # JSON structure
         prompt_json = '''
         {
-          "character_base": "1girl",
+          "name": "Sakura Yamauchi",
           "hair": "short blond hair",
           "eyes": "blue eyes",
           "face": "pretty childlike face, detailed face",
-          "expression": "super happy face",
-          "wearing": "traditional japanese clothing, kimono, yukata",
-          "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
-          "pose_reference": "poseref.png",
-          "seed": 1
+          "wearing": "traditional japanese clothing, kimono, yukata"
         }
         '''
-        low_res_latents = generator.text_to_image(prompt_json)
-        character_img = generator.latent_upscale_and_refine(low_res_latents, prompt_json)
-        character_img.save("VNImageGenerator-Character-happy.png")
-
-        facial_expressions = ["sad", "angry", "surprised", "neutral",
-                              "embarrassed", "smug", "scared", "disgusted",
-                              "laughing", "yelling", "winking", "blushing"]
-
-        for facial_expression in facial_expressions:
-            changed_latents = generator.change_facial_expression(low_res_latents, prompt_json, facial_expression)
-            character_img = generator.latent_upscale_and_refine(changed_latents,
-                                                                prompt_json,
-                                                                expression_override=facial_expression)
-            character_img.save(f"VNImageGenerator-Character-{facial_expression}.png")
+        prompt_data = json.loads(prompt_json)
+        generate_character_images(generator, prompt_data)
 
     if CG_test:
         prompt_json = '''
@@ -356,9 +382,10 @@ if __name__ == '__main__':
               "height": 512
             }
             '''
+        prompt_data = json.loads(prompt_json)
         generator.enable_tranparent_background(False)
-        low_res_latents = generator.text_to_image(prompt_json)
-        image = generator.latent_upscale_and_refine(low_res_latents, prompt_json, save_intermediate=True)
+        low_res_latents = generator.text_to_image(prompt_data)
+        image = generator.latent_upscale_and_refine(low_res_latents, prompt_data, save_intermediate=False)
         image.save("VNImageGenerator-CG-Final.png")
 
     if scene_test:
@@ -369,9 +396,10 @@ if __name__ == '__main__':
                   "image_quality": "intricate, visual novel style, beautiful, masterpiece"
                 }
                 '''
+        prompt_data = json.loads(prompt_json)
         generator.enable_tranparent_background(False)
-        low_res_latents = generator.text_to_image(prompt_json)
-        scene_img = generator.latent_upscale_and_refine(low_res_latents, prompt_json, save_intermediate=True)
+        low_res_latents = generator.text_to_image(prompt_data)
+        scene_img = generator.latent_upscale_and_refine(low_res_latents, prompt_data, save_intermediate=True)
         scene_img.save("VNImageGenerator-background-Final.png")
 
     if composition_test:

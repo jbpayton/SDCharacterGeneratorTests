@@ -90,7 +90,7 @@ prompt_json = '''
   "mood": "neutral face",
   "wearing": "black, egl, gothic lolita dress, black jacket with red crosses, black bows in hair",
   "image_quality": "intricate, visual novel style, beautiful, masterpiece, detailed eyes",
-  "pose_reference": "poseref.png"
+  "pose_reference": "waist_up_arms_down.png"
 }
 '''
 prompt_data = json.loads(prompt_json)
