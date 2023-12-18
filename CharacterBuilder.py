@@ -56,7 +56,9 @@ class CharacterBuilder:
                  "and their attributes." \
                  "For individual characters, include full descriptions of their physical appearance, " \
                  "their personality, their backstory, and their motivations for their actions. " \
-                 "Please be creative, descriptive yet succinct, the artist will use these to draw character images and the writers" \
+                 "Please be creative, descriptive yet short (separate multiple elements with commas), the stable diffusion " \
+                 "engine will use these to " \
+                 "generate images and the writers" \
                 f"will use these to write the story. You know the following about the character: {prompt}"
 
         prompt = f"""Create a new character for a visual novel, be creative! Here the output format: 

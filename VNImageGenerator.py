@@ -160,7 +160,7 @@ class VNImageGenerator:
 
         # if this json contains the character_base key, we need to create a charcter prompt
         if "character_base" in prompt_data:
-            negative_prompt, prompt = self.build_character_prompt(prompt_data)
+            negative_prompt, prompt = self.build_character_prompt(prompt_data, save_intermediate=save_intermediate)
             height = prompt_data.get("height", 768)
             width = prompt_data.get("width", 512)
         elif "scene_base" in prompt_data:
@@ -268,7 +268,7 @@ class VNImageGenerator:
                 final_image.save(f"VNImageGenerator-{timestamp}-4-GreenScreen.png")
         return final_image
 
-    def build_character_prompt(self, prompt_data):
+    def build_character_prompt(self, prompt_data, save_intermediate=False):
         # Building the prompt
         character_base = prompt_data["character_base"]
         age = prompt_data["age"]
@@ -288,6 +288,13 @@ class VNImageGenerator:
         prompt = f"{character_base},{background}, {age}, {hair}, {eyes}, {face},  {expression}, {wearing}, {image_quality}, {utility_instructions}"
         if negative_prompt is None:
             negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, pornographic"
+        if save_intermediate:
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            #save the prompt and negative prompt to a file
+            with open(f"VNImageGenerator-{timestamp}-Prompt.txt", "w") as f:
+                f.write(prompt)
+            with open(f"VNImageGenerator-{timestamp}-NegativePrompt.txt", "w") as f:
+                f.write(negative_prompt)
         return negative_prompt, prompt
 
     def build_scene_prompt(self, prompt_data):
