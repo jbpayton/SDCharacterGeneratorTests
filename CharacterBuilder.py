@@ -2,7 +2,7 @@ import json
 import os
 import sys
 
-from VNImageGenerator import VNImageGenerator, generate_character_images
+from VNImageGenerator import VNImageGenerator
 
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import SystemMessage, HumanMessage
@@ -22,6 +22,7 @@ class CharacterBuilder:
         {
           "name": "Sakura Yamauchi",
           "character_base": "girl",
+          "age": "18 years old",
           "hair": "short blond hair",
           "eyes": "blue eyes",
           "face": "pretty childlike face, detailed face",
@@ -36,6 +37,7 @@ class CharacterBuilder:
             {
               "name": <the character's name>,
               "character_base": <boy, girl, man, woman, etc.>,
+              "age": "<age in years or description of age>",
               "hair": <description of hair color and style>,
               "eyes": "<eye color, and other description of eyes>",
               "face": "<description of face?>",
@@ -54,7 +56,7 @@ class CharacterBuilder:
                  "and their attributes." \
                  "For individual characters, include full descriptions of their physical appearance, " \
                  "their personality, their backstory, and their motivations for their actions. " \
-                 "Please be creative, thorough, the artist will use these to draw character images and the writers" \
+                 "Please be creative, descriptive yet succinct, the artist will use these to draw character images and the writers" \
                 f"will use these to write the story. You know the following about the character: {prompt}"
 
         prompt = f"""Create a new character for a visual novel, be creative! Here the output format: 
@@ -62,6 +64,8 @@ class CharacterBuilder:
 
         Here is an example of the output format (dont follow this exactly, just use it as an example):
         {CharacterBuilder.example_prompt_json}
+        
+        Also, be careful describing green clothing and eyes, as the artist will use a green screen to draw the character.
         """
 
         # prepend the background information if it is provided
@@ -94,12 +98,16 @@ if __name__ == "__main__":
     cb = CharacterBuilder()
     prompt = cb.generate_individual_character("Create a girl character for a visual novel about a space station.")
 
+    # save the output to a file
+    with open("character.json", "w") as f:
+        json.dump(prompt, f)
+
     # prettify the output
     print(json.dumps(prompt, indent=4))
 
     pipeline_path = "SDCheckpoints/aingdiffusion_v13.safetensors"
     upscaler_model_id = "stabilityai/sd-x2-latent-upscaler"
     generator = VNImageGenerator(pipeline_path, upscaler_model_id)
-    generate_character_images(generator, prompt)
+    generator.generate_character_images(prompt, save_intermediate=True)
 
 

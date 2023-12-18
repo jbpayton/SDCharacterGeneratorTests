@@ -4,6 +4,7 @@ from datetime import datetime
 import torch
 from diffusers import StableDiffusionControlNetPipeline, StableDiffusionLatentUpscalePipeline, \
     DPMSolverMultistepScheduler, StableDiffusionImg2ImgPipeline, ControlNetModel, StableDiffusionInpaintPipeline
+
 from controlnet_aux.processor import Processor
 from diffusers.utils import load_image
 from compel import Compel
@@ -29,6 +30,7 @@ class VNImageGenerator:
         # Load ControlNet and Openpose models
         self.openpose = Processor("openpose_full")
         controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-openpose", torch_dtype=torch.float16)
+        tileControlNet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1e_sd15_tile", torch_dtype=torch.float16)
 
         # Load the main pipeline
         self.pipeline = StableDiffusionControlNetPipeline.from_single_file(
@@ -54,6 +56,7 @@ class VNImageGenerator:
         # Initialize compel and img2img
         self.compel = Compel(tokenizer=self.pipeline.tokenizer, text_encoder=self.pipeline.text_encoder,
                              truncate_long_prompts=False, device=device)
+
         filtered_components = {k: v for k, v in self.pipeline.components.items() if k != 'controlnet'}
         self.img2img = StableDiffusionImg2ImgPipeline(**filtered_components)
         self.inpainter = StableDiffusionInpaintPipeline(**filtered_components)
@@ -203,7 +206,8 @@ class VNImageGenerator:
 
         return low_res_latents
 
-    def latent_upscale_and_refine(self, low_res_latents, prompt_data, expression_override=None, save_intermediate=False):
+    def latent_upscale_and_refine(self, low_res_latents, prompt_data, expression_override=None,
+                                  save_intermediate=False):
         if save_intermediate:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         # first, get the non-prompt specific data from the prompt_data structure
@@ -267,6 +271,7 @@ class VNImageGenerator:
     def build_character_prompt(self, prompt_data):
         # Building the prompt
         character_base = prompt_data["character_base"]
+        age = prompt_data["age"]
         hair = prompt_data["hair"]
         eyes = prompt_data["eyes"]
         face = prompt_data["face"]
@@ -279,8 +284,8 @@ class VNImageGenerator:
         utility_instructions = "4K, high resolution" + (
             ", <lora:GreenScreen_N:1.5>" if self.background_transparency else "")
         if self.background_transparency:
-            background = "isolated on green background, uniform background"
-        prompt = f"{character_base}, {hair}, {eyes}, {face}, {background}, {expression}, {wearing}, {image_quality}, {utility_instructions}"
+            background = "isolated on solid green background"
+        prompt = f"{character_base},{background}, {age}, {hair}, {eyes}, {face},  {expression}, {wearing}, {image_quality}, {utility_instructions}"
         if negative_prompt is None:
             negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, pornographic"
         return negative_prompt, prompt
@@ -297,51 +302,54 @@ class VNImageGenerator:
         prompt = f"{scene_base}, {scene}, {image_quality}, {utility_instructions}"
         return negative_prompt, prompt
 
+    def generate_character_images(self, character_prompt_json, save_intermediate=False):
+        # Generate image
+        # JSON structure
+        base_prompt_json = '''
+                {
+                  "character_base": "girl",
+                  "age": "18",
+                  "hair": "short blond hair",
+                  "eyes": "blue eyes",
+                  "face": "pretty childlike face, detailed face",
+                  "expression": "happy",
+                  "wearing": "traditional japanese clothing, kimono, yukata",
+                  "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
+                  "pose_reference": "pose_references/waist_up_arms_down.png",
+                  "seed": 1
+                }
+                '''
+        prompt_data = json.loads(base_prompt_json)
 
-def generate_character_images(generator, character_prompt_json):
-    # Generate image
-    # JSON structure
-    base_prompt_json = '''
-            {
-              "character_base": "girl",
-              "hair": "short blond hair",
-              "eyes": "blue eyes",
-              "face": "pretty childlike face, detailed face",
-              "expression": "happy",
-              "wearing": "traditional japanese clothing, kimono, yukata",
-              "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
-              "pose_reference": "pose_references/waist_up_arms_down.png",
-              "seed": 1
-            }
-            '''
-    prompt_data = json.loads(base_prompt_json)
+        # override the default values with the ones from the json
+        prompt_data.update(character_prompt_json)
 
-    # override the default values with the ones from the json
-    prompt_data.update(character_prompt_json)
+        character_name = prompt_data.get("name", "character")
 
-    character_name = prompt_data.get("name", "character")
+        low_res_latents = self.text_to_image(prompt_data,
+                                             save_intermediate=save_intermediate)
+        character_img = self.latent_upscale_and_refine(low_res_latents,
+                                                       prompt_data,
+                                                       save_intermediate=save_intermediate)
+        character_img.save(f"{character_name}-happy.png")
 
-    low_res_latents = generator.text_to_image(prompt_data)
-    character_img = generator.latent_upscale_and_refine(low_res_latents, prompt_data)
-    character_img.save(f"{character_name}-happy.png")
+        facial_expressions = ["sad", "angry", "surprised", "neutral",
+                              "embarrassed", "smug", "scared", "disgusted",
+                              "laughing", "yelling", "winking", "blushing"]
 
-    facial_expressions = ["sad", "angry", "surprised", "neutral",
-                          "embarrassed", "smug", "scared", "disgusted",
-                          "laughing", "yelling", "winking", "blushing"]
-
-    for facial_expression in facial_expressions:
-        changed_latents = generator.change_facial_expression(low_res_latents, prompt_data, facial_expression)
-        character_img = generator.latent_upscale_and_refine(changed_latents,
-                                                            prompt_data,
-                                                            expression_override=facial_expression)
-        character_img.save(f"{character_name}-{facial_expression}.png")
+        for facial_expression in facial_expressions:
+            changed_latents = self.change_facial_expression(low_res_latents, prompt_data, facial_expression)
+            character_img = self.latent_upscale_and_refine(changed_latents,
+                                                           prompt_data,
+                                                           expression_override=facial_expression)
+            character_img.save(f"{character_name}-{facial_expression}.png")
 
 
 if __name__ == '__main__':
 
     chara_test = True
     CG_test = False
-    scene_test = True
+    scene_test = False
     composition_test = False
 
     # Usage
@@ -357,6 +365,8 @@ if __name__ == '__main__':
         # JSON structure
         prompt_json = '''
         {
+          "character_base": "girl",
+          "age": "18",
           "name": "Sakura Yamauchi",
           "hair": "short blond hair",
           "eyes": "blue eyes",
@@ -365,7 +375,7 @@ if __name__ == '__main__':
         }
         '''
         prompt_data = json.loads(prompt_json)
-        generate_character_images(generator, prompt_data)
+        generator.generate_character_images(prompt_data, save_intermediate=True)
 
     if CG_test:
         prompt_json = '''
