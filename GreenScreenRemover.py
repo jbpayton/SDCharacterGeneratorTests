@@ -1,8 +1,10 @@
+import datetime
+
 import cv2
 import numpy as np
 from PIL import Image
 
-def remove_green_screen_pil(pil_img, threshold=2, blur=0, dilate=0):
+def remove_green_screen_pil(pil_img, threshold=2, blur=0, dilate=0, debug=False):
     # Convert PIL image to OpenCV format (RGB to BGR)
     open_cv_image = np.array(pil_img.convert('RGB'))[:, :, ::-1]
 
@@ -35,6 +37,17 @@ def remove_green_screen_pil(pil_img, threshold=2, blur=0, dilate=0):
             blur += 1
         mask = cv2.GaussianBlur(mask, (blur, blur), 0)
 
+    if debug:
+        # get the percentage of the mask that is green
+        total_pixels = mask.shape[0] * mask.shape[1]
+        green_pixels = np.sum(mask == 255)
+        green_percentage = green_pixels / total_pixels * 100
+        #round to 2 decimal places
+        green_percentage = round(green_percentage, 2)
+        print("Green percentage: " + str(green_percentage))
+        # save the mask to a png file
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        cv2.imwrite("./output/mask-" + timestamp + "-coveragepct-" + str(green_percentage) + ".png", mask)
 
     # Invert mask to get parts that are not green
     mask_inv = cv2.bitwise_not(mask)

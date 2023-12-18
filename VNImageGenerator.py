@@ -1,4 +1,4 @@
-import json
+import json, os
 from datetime import datetime
 
 import torch
@@ -20,7 +20,7 @@ warnings.simplefilter(action='ignore', category=UserWarning)
 
 
 class VNImageGenerator:
-    def __init__(self, pipeline_path, upscaler_model_id, device='cuda', generate_transparent_background=True):
+    def __init__(self, pipeline_path, upscaler_model_id, device='cuda', generate_transparent_background=True, output_folder="./output"):
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         self.lora_weights = None
 
@@ -30,7 +30,6 @@ class VNImageGenerator:
         # Load ControlNet and Openpose models
         self.openpose = Processor("openpose_full")
         controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-openpose", torch_dtype=torch.float16)
-        tileControlNet = ControlNetModel.from_pretrained("lllyasviel/control_v11f1e_sd15_tile", torch_dtype=torch.float16)
 
         # Load the main pipeline
         self.pipeline = StableDiffusionControlNetPipeline.from_single_file(
@@ -38,12 +37,16 @@ class VNImageGenerator:
             use_safetensors=True,
             local_files_only=True,
             controlnet=controlnet,
-            torch_dtype=torch.float16
+            torch_dtype=torch.float16,
         )
+        self.pipeline.safety_checker = lambda images, **kwargs: (images, False)
 
         # Initialize upscaler
         self.upscaler = StableDiffusionLatentUpscalePipeline.from_pretrained(upscaler_model_id,
                                                                              torch_dtype=torch.float16)
+
+        self.upscaler.safety_checker = lambda images, **kwargs: (images, False)
+
         self.upscaler.to(device)
         self.upscaler.enable_xformers_memory_efficient_attention()
 
@@ -59,10 +62,18 @@ class VNImageGenerator:
 
         filtered_components = {k: v for k, v in self.pipeline.components.items() if k != 'controlnet'}
         self.img2img = StableDiffusionImg2ImgPipeline(**filtered_components)
+        self.img2img.safety_checker = lambda images, **kwargs: (images, None)
+
         self.inpainter = StableDiffusionInpaintPipeline(**filtered_components)
+        self.inpainter.safety_checker = lambda images, **kwargs: (images, False)
 
         self.pipeline.enable_xformers_memory_efficient_attention()
         self.pipeline.enable_model_cpu_offload()
+
+        # if it doesnt exist, make an output folder
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        self.output_folder = output_folder
 
     def enable_tranparent_background(self, enable):
         if enable and self.background_transparency == False:
@@ -124,8 +135,8 @@ class VNImageGenerator:
                                        negative_prompt_embeds=negative_prompt_embeds,
                                        image=image,
                                        mask_image=mask,
-                                       num_inference_steps=10,
-                                       guidance_scale=7,
+                                       num_inference_steps=20,
+                                       guidance_scale=12,
                                        generator=g,
                                        clip_skip=2,
                                        height=height,
@@ -137,7 +148,7 @@ class VNImageGenerator:
             with torch.no_grad():
                 image = self.pipeline.decode_latents(facial_change)
                 image = self.pipeline.numpy_to_pil(image)[0]
-                image.save(f"VNImageGenerator-{timestamp}-S-FaceChange-.png")
+                image.save(f"{self.output_folder}/VNImageGenerator-{timestamp}-S-FaceChange-.png")
         return facial_change
 
     def text_to_image(self, prompt_data, save_intermediate=False):
@@ -150,7 +161,7 @@ class VNImageGenerator:
             pose_reference = self.openpose(image_input, to_pil=True)
 
             if save_intermediate:
-                pose_reference.save(f"VNImageGenerator-{timestamp}-0-pose_reference.png")
+                pose_reference.save(f"{self.output_folder}/VNImageGenerator-{timestamp}-0-pose_reference.png")
         else:
             pose_reference = Image.new('RGB', (512, 512))
 
@@ -202,7 +213,7 @@ class VNImageGenerator:
             with torch.no_grad():
                 image = self.pipeline.decode_latents(low_res_latents)
                 image = self.pipeline.numpy_to_pil(image)[0]
-                image.save(f"VNImageGenerator-{timestamp}-1-Initial-.png")
+                image.save(f"{self.output_folder}/VNImageGenerator-{timestamp}-1-Initial-.png")
 
         return low_res_latents
 
@@ -243,7 +254,7 @@ class VNImageGenerator:
             with torch.no_grad():
                 image = self.pipeline.decode_latents(upscaled_image_latents)
             image = self.pipeline.numpy_to_pil(image)[0]
-            image.save(f"VNImageGenerator-{timestamp}-2-LatentUpscaled.png")
+            image.save(f"{self.output_folder}/VNImageGenerator-{timestamp}-2-LatentUpscaled.png")
         with torch.no_grad():
             prompt_embeds = self.compel(prompt)
             negative_prompt_embeds = self.compel(negative_prompt)
@@ -253,47 +264,48 @@ class VNImageGenerator:
         upscaled_image_2 = self.img2img(prompt_embeds=prompt_embeds,
                                         negative_prompt_embeds=negative_prompt_embeds,
                                         image=upscaled_image_latents,
-                                        num_inference_steps=40,
+                                        num_inference_steps=20,
                                         guidance_scale=7,
                                         generator=g,
                                         clip_skip=2,
                                         strength=0.35).images
         if save_intermediate:
-            upscaled_image_2[0].save(f"VNImageGenerator-{timestamp}-3-Img2Img.png")
+            upscaled_image_2[0].save(f"{self.output_folder}/VNImageGenerator-{timestamp}-3-Img2Img.png")
         final_image = upscaled_image_2[0]
         # Remove green screen if it was used
         if self.background_transparency:
-            final_image = remove_green_screen_pil(final_image, blur=4)
+            final_image = remove_green_screen_pil(final_image, blur=3, threshold=.1,debug=save_intermediate)
             if save_intermediate:
-                final_image.save(f"VNImageGenerator-{timestamp}-4-GreenScreen.png")
+                final_image.save(f"{self.output_folder}/VNImageGenerator-{timestamp}-4-GreenScreen.png")
         return final_image
 
     def build_character_prompt(self, prompt_data, save_intermediate=False):
         # Building the prompt
         character_base = prompt_data["character_base"]
-        age = prompt_data["age"]
+        age = prompt_data.get("age", "young adult")
         hair = prompt_data["hair"]
         eyes = prompt_data["eyes"]
         face = prompt_data["face"]
+        body = prompt_data.get("body", "average")
         expression = prompt_data["expression"]
         wearing = prompt_data["wearing"]
         image_quality = prompt_data["image_quality"]
         # optional background (will be ignored if background transparency is enabled)
         background = prompt_data.get("background", "uniform background")
         negative_prompt = prompt_data.get("negative_prompt", None)
-        utility_instructions = "4K, high resolution" + (
+        utility_instructions = "4K, high resolution, clean fine pen outline" + (
             ", <lora:GreenScreen_N:1.5>" if self.background_transparency else "")
         if self.background_transparency:
             background = "isolated on solid green background"
-        prompt = f"{character_base},{background}, {age}, {hair}, {eyes}, {face},  {expression}, {wearing}, {image_quality}, {utility_instructions}"
+        prompt = f"{character_base}, {background}, {age}, {hair}, {eyes}, {face}, {body}, ((({expression}))), {wearing}, {image_quality}, {utility_instructions}"
         if negative_prompt is None:
             negative_prompt = "text, double image, (worst quality, low quality:1.4), (zombie, interlocked fingers), messed up eyes, extra arms, pornographic"
         if save_intermediate:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             #save the prompt and negative prompt to a file
-            with open(f"VNImageGenerator-{timestamp}-Prompt.txt", "w") as f:
+            with open(f"{self.output_folder}/VNImageGenerator-{timestamp}-Prompt.txt", "w") as f:
                 f.write(prompt)
-            with open(f"VNImageGenerator-{timestamp}-NegativePrompt.txt", "w") as f:
+            with open(f"{self.output_folder}/VNImageGenerator-{timestamp}-NegativePrompt.txt", "w") as f:
                 f.write(negative_prompt)
         return negative_prompt, prompt
 
@@ -319,8 +331,9 @@ class VNImageGenerator:
                   "hair": "short blond hair",
                   "eyes": "blue eyes",
                   "face": "pretty childlike face, detailed face",
+                  "body": "slim, slender, petite, small chest",
                   "expression": "happy",
-                  "wearing": "traditional japanese clothing, kimono, yukata",
+                  "wearing": "traditional japanese clothing, pink kimono, yukata",
                   "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
                   "pose_reference": "pose_references/waist_up_arms_down.png",
                   "seed": 1
@@ -333,12 +346,23 @@ class VNImageGenerator:
 
         character_name = prompt_data.get("name", "character")
 
+        # change spaces to underscores
+        character_name = character_name.replace(" ", "_")
+
+        # create a folder for the character
+        os.makedirs(f"{self.output_folder}/{character_name}", exist_ok=True)
+        character_image_folder = f"{self.output_folder}/{character_name}"
+
+        # save the prompt data to the character folder
+        with open(f"{character_image_folder}/prompt.json", "w") as f:
+            json.dump(prompt_data, f)
+
         low_res_latents = self.text_to_image(prompt_data,
                                              save_intermediate=save_intermediate)
         character_img = self.latent_upscale_and_refine(low_res_latents,
                                                        prompt_data,
                                                        save_intermediate=save_intermediate)
-        character_img.save(f"{character_name}-happy.png")
+        character_img.save(f"{character_image_folder}/dialogue-happy.png")
 
         facial_expressions = ["sad", "angry", "surprised", "neutral",
                               "embarrassed", "smug", "scared", "disgusted",
@@ -349,14 +373,14 @@ class VNImageGenerator:
             character_img = self.latent_upscale_and_refine(changed_latents,
                                                            prompt_data,
                                                            expression_override=facial_expression)
-            character_img.save(f"{character_name}-{facial_expression}.png")
+            character_img.save(f"{character_image_folder}/dialogue-{facial_expression}.png")
 
 
 if __name__ == '__main__':
 
     chara_test = True
-    CG_test = False
-    scene_test = False
+    CG_test = True
+    scene_test = True
     composition_test = False
 
     # Usage
@@ -374,11 +398,12 @@ if __name__ == '__main__':
         {
           "character_base": "girl",
           "age": "18",
-          "name": "Sakura Yamauchi",
+          "name": "Sakura Nadeshiko",
           "hair": "short blond hair",
           "eyes": "blue eyes",
           "face": "pretty childlike face, detailed face",
-          "wearing": "traditional japanese clothing, kimono, yukata"
+          "body": "slim, slender, petite, small chest",
+          "wearing": "sakura pink traditional japanese clothing, kimono, yukata"
         }
         '''
         prompt_data = json.loads(prompt_json)
@@ -403,7 +428,7 @@ if __name__ == '__main__':
         generator.enable_tranparent_background(False)
         low_res_latents = generator.text_to_image(prompt_data)
         image = generator.latent_upscale_and_refine(low_res_latents, prompt_data, save_intermediate=False)
-        image.save("VNImageGenerator-CG-Final.png")
+        image.save(f"{generator.output_folder}/VNImageGenerator-CG-Final.png")
 
     if scene_test:
         prompt_json = '''
@@ -417,7 +442,7 @@ if __name__ == '__main__':
         generator.enable_tranparent_background(False)
         low_res_latents = generator.text_to_image(prompt_data)
         scene_img = generator.latent_upscale_and_refine(low_res_latents, prompt_data, save_intermediate=True)
-        scene_img.save("VNImageGenerator-background-Final.png")
+        scene_img.save(f"{generator.output_folder}/VNImageGenerator-background-Final.png")
 
     if composition_test:
         if character_img is not None and scene_img is not None:
@@ -428,5 +453,5 @@ if __name__ == '__main__':
                 scene_img.width // 2 - character_img.width // 2, scene_img.height // 2 - character_img.height // 2),
                             character_img)
             scene_img = scene_img.resize((scene_img.width * 2, scene_img.height * 2), resample=Image.LANCZOS)
-            scene_img.save("VNImageGenerator-Composition-Final.png")
+            scene_img.save(f"{generator.output_folder}/VNImageGenerator-Composition-Final.png")
             scene_img.show()

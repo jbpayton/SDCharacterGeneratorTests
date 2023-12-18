@@ -13,20 +13,21 @@ class CharacterBuilder:
         if chat_llm is None:
             self.chat_llm = ChatOpenAI(
                 model_name='gpt-4',
-                temperature=0.0
+                temperature=0.5
             )
         else:
             self.chat_llm = chat_llm
 
     example_prompt_json = '''
         {
-          "name": "Sakura Yamauchi",
+          "name": "Sakura Nadeshiko",
           "character_base": "girl",
           "age": "18 years old",
           "hair": "short blond hair",
           "eyes": "blue eyes",
           "face": "pretty childlike face, detailed face",
-          "wearing": "traditional japanese clothing, kimono, yukata",
+          "body": "slim, slender, petite, small chest",
+          "wearing": "traditional japanese clothing, pink kimono, yukata"
           "personality": "kind, caring, cheerful, optimistic, outgoing, friendly, energetic, playful, mischievous"
           "backstory": "Sakura grew up in a small town in Japan. She was always a cheerful and optimistic child, and she loved to play with her friends. She now attends a prestigious high school in Tokyo "
           "motivations": "Sakura is motivated by her desire to help others. She wants to make the world a better place, and she believes that she can do this by becoming a doctor. She also wants to make her parents proud of her."
@@ -40,8 +41,9 @@ class CharacterBuilder:
               "age": "<age in years or description of age>",
               "hair": <description of hair color and style>,
               "eyes": "<eye color, and other description of eyes>",
-              "face": "<description of face?>",
-              "wearing": "<a detailed description of clothing worn by the character>",
+              "face": "<description of face>",
+              "body": "<description of body>",
+              "wearing": "<a detailed description of clothing worn by the character and its colors>",
               "personality": "<a detailed description of the character's personality>",
               "backstory": "<a detailed description of the character's backstory>",
               "motivations": "<a detailed description of the character's motivations>"
@@ -96,20 +98,27 @@ if __name__ == "__main__":
     from util import load_secrets
     load_secrets()
 
+    characters_so_far = []
+
     # Test the CharacterBuilder class
     cb = CharacterBuilder()
-    prompt = cb.generate_individual_character("Create a girl character for a visual novel about a space station.")
-
-    # save the output to a file
-    with open("character.json", "w") as f:
-        json.dump(prompt, f)
-
-    # prettify the output
-    print(json.dumps(prompt, indent=4))
-
     pipeline_path = "SDCheckpoints/aingdiffusion_v13.safetensors"
     upscaler_model_id = "stabilityai/sd-x2-latent-upscaler"
     generator = VNImageGenerator(pipeline_path, upscaler_model_id)
-    generator.generate_character_images(prompt, save_intermediate=True)
+
+    # generate 5 characters
+    for i in range(10):
+        prompt = cb.generate_individual_character("Create a character for a cute and fun visual novel about a fantasy world. These characters have been generated so far: " + str(characters_so_far))
+
+        # save the output to a file
+        with open("character.json", "w") as f:
+            json.dump(prompt, f)
+
+        # append the whole prompt to the list of characters
+        characters_so_far.append(prompt)
+
+        # prettify the output
+        print(json.dumps(prompt, indent=4))
+        generator.generate_character_images(prompt, save_intermediate=True)
 
 
