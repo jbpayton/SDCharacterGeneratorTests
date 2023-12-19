@@ -107,8 +107,8 @@ if __name__ == "__main__":
     generator = VNImageGenerator(pipeline_path, upscaler_model_id)
 
     # generate 5 characters
-    for i in range(10):
-        prompt = cb.generate_individual_character("Create a character for a cute and fun visual novel about a fantasy world. These characters have been generated so far: " + str(characters_so_far))
+    for i in range(15):
+        prompt = cb.generate_individual_character("Surprise me come up with a fun new cute anime character. Here are the characters so far: " + str(characters_so_far))
 
         # save the output to a file
         with open("character.json", "w") as f:

@@ -28,6 +28,10 @@ def remove_green_screen_pil(pil_img, threshold=2, blur=0, dilate=0, debug=False)
 
     if dilate > 0:
         mask = cv2.dilate(mask, None, iterations=dilate)
+
+    #heal stray holes in the mask
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, None)
+
     # Optional: Apply blurring to the mask to soften edges
     if blur > 0:
         #mask = cv2.erode(mask, None, iterations=blur)

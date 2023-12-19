@@ -112,7 +112,7 @@ class VNImageGenerator:
         # get seed from JSON
         seed = prompt_data.get("seed", -1)
 
-        mask = create_face_mask_pil(image)
+        mask = create_face_mask_pil(image, debug=save_intermediate)
 
         # if this json contains the character_base key, we need to create a charcter prompt
         negative_prompt, prompt = self.build_character_prompt(prompt_data)
@@ -136,12 +136,12 @@ class VNImageGenerator:
                                        image=image,
                                        mask_image=mask,
                                        num_inference_steps=20,
-                                       guidance_scale=12,
+                                       guidance_scale=10,
                                        generator=g,
                                        clip_skip=2,
                                        height=height,
                                        width=width,
-                                       strength=0.6,
+                                       strength=0.8,
                                        output_type="latent").images
 
         if save_intermediate:
@@ -332,7 +332,7 @@ class VNImageGenerator:
                   "eyes": "blue eyes",
                   "face": "pretty childlike face, detailed face",
                   "body": "slim, slender, petite, small chest",
-                  "expression": "happy",
+                  "expression": "neutral",
                   "wearing": "traditional japanese clothing, pink kimono, yukata",
                   "image_quality": "intricate, beautiful, masterpiece, detailed eyes",
                   "pose_reference": "pose_references/waist_up_arms_down.png",
@@ -362,18 +362,20 @@ class VNImageGenerator:
         character_img = self.latent_upscale_and_refine(low_res_latents,
                                                        prompt_data,
                                                        save_intermediate=save_intermediate)
-        character_img.save(f"{character_image_folder}/dialogue-happy.png")
+        #character_img.save(f"{character_image_folder}/dialogue-happy.png")
 
-        facial_expressions = ["sad", "angry", "surprised", "neutral",
-                              "embarrassed", "smug", "scared", "disgusted",
-                              "laughing", "yelling", "winking", "blushing"]
+        facial_expressions = ["crying", "furious, angry", "smiling", "neutral", "disappointed, let down",
+                              "blushing, very embarrassed", "terrified, scared", "laughing", "yelling with open mouth"]
 
-        for facial_expression in facial_expressions:
-            changed_latents = self.change_facial_expression(low_res_latents, prompt_data, facial_expression)
+        short_names = ["cry", "angry", "smile", "neutral", "disappointed",
+                              "blush", "scared", "laugh", "yell"]
+
+        for facial_expression, short_name in zip(facial_expressions, short_names):
+            changed_latents = self.change_facial_expression(low_res_latents, prompt_data, facial_expression, save_intermediate=save_intermediate)
             character_img = self.latent_upscale_and_refine(changed_latents,
                                                            prompt_data,
                                                            expression_override=facial_expression)
-            character_img.save(f"{character_image_folder}/dialogue-{facial_expression}.png")
+            character_img.save(f"{character_image_folder}/dialogue-{short_name}.png")
 
 
 if __name__ == '__main__':
@@ -397,13 +399,14 @@ if __name__ == '__main__':
         prompt_json = '''
         {
           "character_base": "girl",
-          "age": "18",
-          "name": "Sakura Nadeshiko",
-          "hair": "short blond hair",
-          "eyes": "blue eyes",
-          "face": "pretty childlike face, detailed face",
-          "body": "slim, slender, petite, small chest",
-          "wearing": "sakura pink traditional japanese clothing, kimono, yukata"
+          "age": "17",
+          "name": "Sakura Testcharacter",
+          "hair": "Short blonde hair with red streak",
+          "eyes": "very large blue eyes",
+          "face": "pretty face, detailed face",
+          "body": "normal build, medium chest",
+          "wearing": "red sorceress outfit",
+          "seed": -1
         }
         '''
         prompt_data = json.loads(prompt_json)
