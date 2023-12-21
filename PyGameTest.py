@@ -2,6 +2,8 @@ import random
 import pygame
 from PIL import Image
 from PyGameHelpers import scale_image, maintain_aspect_ratio, render_multiline_text
+from PyGameTransitions import FadeInCharacter, FadeOutCharacter, Dissolve
+
 
 class VisualNovelGame:
     def __init__(self, initial_background_path, initial_music_path):
@@ -9,6 +11,8 @@ class VisualNovelGame:
 
         self.screen_width, self.screen_height = 1152, 768
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+
+        self.positions = {'left': 0.0, 'center': 0.3, 'right': 0.6}
 
         self.background_image = None
         self.original_bg_width, self.original_bg_height = 0, 0
@@ -27,7 +31,11 @@ class VisualNovelGame:
         self.play_initial_music(initial_music_path)
 
     def load_initial_background(self, background_path):
-        self.background_image = Image.open(background_path)
+        # if no background path is provided, use a black background
+        if background_path is None:
+            self.background_image = Image.new('RGB', (self.screen_width, self.screen_height), color='black')
+        else:
+            self.background_image = Image.open(background_path)
         self.original_bg_width, self.original_bg_height = self.background_image.size
         self.original_background_surface = pygame.image.fromstring(self.background_image.tobytes(),
                                                                    self.background_image.size,
@@ -84,17 +92,32 @@ class VisualNovelGame:
         if random.choice([True, False]):
             self.load_random_character('right')
         else:
-            self.clear_character('right')
+            self.clear_character('right', transition=FadeOutCharacter())
 
-    def load_character(self, position, character_path, expression):
+    def load_character(self, position, character_path, expression, transition=None):
         image_path = f"{character_path}/dialogue-{expression}.png"
         character_image = Image.open(image_path)
-        original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size, character_image.mode)
-        character_surface = scale_image(original_character_surface, original_character_surface.get_width(), self.screen_height * self.character_scale_factor)
+        original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size,
+                                                             character_image.mode)
+        character_surface = scale_image(original_character_surface, original_character_surface.get_width(),
+                                        self.screen_height * self.character_scale_factor)
+
         self.characters[position] = character_surface
 
-    def clear_character(self, position):
-        self.characters[position] = None
+        if transition:
+            transition.apply(self, character_surface, (
+            self.screen_width * self.positions[position], self.screen_height - character_surface.get_height()))
+
+
+
+    def clear_character(self, position, transition=None):
+        if self.characters[position]:
+            if transition:
+                transition.apply(self, self.characters[position], (self.screen_width * self.positions[position],
+                                                                          self.screen_height - self.characters[
+                                                                              position].get_height()))
+
+            self.characters[position] = None
 
     def change_background(self, new_background_path):
         self.background_image = Image.open(new_background_path)
@@ -103,6 +126,18 @@ class VisualNovelGame:
                                                                    self.background_image.size,
                                                                    self.background_image.mode)
         self.scale_images()  # Rescale the new background
+
+    def transition_to_new_background(self, new_background_path, transition, duration=250):
+        new_background_image = Image.open(new_background_path)
+        new_background_surface = pygame.image.fromstring(new_background_image.tobytes(), new_background_image.size,
+                                                         new_background_image.mode)
+        new_background_surface = scale_image(new_background_surface, self.screen_width, self.screen_height)
+
+        transition.apply(self.screen, self.background_surface, new_background_surface, duration)  # Duration in milliseconds
+
+        self.background_surface = new_background_surface
+        self.draw()  # Redraw the entire screen with the new background
+
 
     def change_music(self, music_path):
         pygame.mixer.music.stop()  # Stop the current music
@@ -114,7 +149,7 @@ class VisualNovelGame:
         expressions = ["cry", "angry", "smile", "neutral", "disappointed",
                               "blush", "scared", "laugh", "yell"]
         expression = random.choice(expressions)
-        self.load_character(position, character_image_path, expression)
+        self.load_character(position, character_image_path, expression, transition=FadeInCharacter())
 
     def handle_resize(self, event):
         new_width, new_height = event.size
@@ -128,10 +163,9 @@ class VisualNovelGame:
         self.draw_text_box()
 
     def draw_characters(self):
-        positions = {'left': 0.0, 'center': 0.3, 'right': 0.6}
         for position, character_surface in self.characters.items():
             if character_surface:
-                char_x, char_y = self.screen_width * positions[position], self.screen_height - character_surface.get_height()
+                char_x, char_y = self.screen_width * self.positions[position], self.screen_height - character_surface.get_height()
                 self.screen.blit(character_surface, (char_x, char_y))
 
     def draw_text_box(self):
@@ -145,5 +179,8 @@ class VisualNovelGame:
 if __name__ == "__main__":
     initial_background = 'output/VNImageGenerator-background-Final.png'
     initial_music = 'Shenanigans!.ogg'
-    game = VisualNovelGame(initial_background, initial_music)
+    game = VisualNovelGame(None, initial_music)
+
+    game.transition_to_new_background('output/VNImageGenerator-background-Final.png', Dissolve())
+
     game.run()
