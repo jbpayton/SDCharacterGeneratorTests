@@ -293,7 +293,7 @@ class VNImageGenerator:
         # optional background (will be ignored if background transparency is enabled)
         background = prompt_data.get("background", "uniform background")
         negative_prompt = prompt_data.get("negative_prompt", None)
-        utility_instructions = "4K, high resolution, clean fine pen outline" + (
+        utility_instructions = "Anime, 4K, high resolution, clean pen outline" + (
             ", <lora:GreenScreen_N:1.5>" if self.background_transparency else "")
         if self.background_transparency:
             background = "isolated on solid green background"
@@ -405,7 +405,7 @@ if __name__ == '__main__':
           "eyes": "very large blue eyes",
           "face": "pretty face, detailed face",
           "body": "normal build, medium chest",
-          "wearing": "red sorceress outfit",
+          "wearing": "red fantasy clothing",
           "seed": -1
         }
         '''

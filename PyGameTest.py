@@ -1,160 +1,149 @@
 import random
-
 import pygame
 from PIL import Image
+from PyGameHelpers import scale_image, maintain_aspect_ratio, render_multiline_text
 
-def scale_image(image, target_width, target_height):
-    """ Scale the image while maintaining aspect ratio. """
-    original_width, original_height = image.get_size()
-    ratio = min(target_width / original_width, target_height / original_height)
-    new_size = (int(original_width * ratio), int(original_height * ratio))
-    return pygame.transform.scale(image, new_size)
+class VisualNovelGame:
+    def __init__(self, initial_background_path, initial_music_path):
+        pygame.init()
 
-def maintain_aspect_ratio(original_width, original_height, new_width, new_height):
-    """ Adjust the new dimensions to maintain the aspect ratio. """
-    original_aspect = original_width / original_height
-    new_aspect = new_width / new_height
+        self.screen_width, self.screen_height = 1152, 768
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
 
-    if new_aspect > original_aspect:
-        # Window too wide, adjust width
-        return int(new_height * original_aspect), new_height
-    else:
-        # Window too tall, adjust height
-        return new_width, int(new_width / original_aspect)
+        self.background_image = None
+        self.original_bg_width, self.original_bg_height = 0, 0
+        self.original_background_surface = None
 
+        self.load_initial_background(initial_background_path)
+        self.character_scale_factor = 1  # Scale factor for characters
+        self.scale_images()
 
-def render_multiline_text(surface, text, rect, font, color=(0, 0, 0), alpha=128, padding=10):
-    """ Render multiline text within a given rectangle with word wrap and padding. """
-    text_box_surface = pygame.Surface((rect.width, rect.height))
-    text_box_surface.set_alpha(alpha)
-    text_box_surface.fill((255, 255, 255))
-    surface.blit(text_box_surface, rect.topleft)
+        self.font = pygame.font.SysFont(None, int(self.screen_height * 0.04))
+        self.full_dialogue = "Initial dialogue..."
+        self.dialogue_position = 0
 
-    x, y = rect.topleft[0] + padding, rect.topleft[1] + padding
-    max_width, max_height = rect.width - 2 * padding, rect.height - 2 * padding
+        self.characters = {'left': None, 'center': None, 'right': None}
 
-    words = text.split(' ')
-    space = font.size(' ')[0]
-    for word in words:
-        word_surface = font.render(word, True, color)
-        word_width, word_height = word_surface.get_size()
-        if x + word_width >= rect.right - padding:
-            x = rect.left + padding  # Reset x to the left padding
-            y += word_height  # Start on new row
-        if y + word_height >= rect.bottom - padding:
-            # No more vertical space for the text; stop rendering
-            break
-        surface.blit(word_surface, (x, y))
-        x += word_width + space  # Move x to the right by the word width and space width
+        self.play_initial_music(initial_music_path)
 
+    def load_initial_background(self, background_path):
+        self.background_image = Image.open(background_path)
+        self.original_bg_width, self.original_bg_height = self.background_image.size
+        self.original_background_surface = pygame.image.fromstring(self.background_image.tobytes(),
+                                                                   self.background_image.size,
+                                                                   self.background_image.mode)
 
-# Initialize Pygame
-pygame.init()
+    def play_initial_music(self, music_path):
+        pygame.mixer.music.load(music_path)
+        pygame.mixer.music.play(-1)
 
-# Load images (assuming you have PIL images)
-background_image_path = 'VNImageGenerator-background-Final.png'
-background_image = Image.open(background_image_path)
-character_image = Image.open('VNImageGenerator-Character-Final.png')
+    def load_images(self):
+        background_image_path = 'output/VNImageGenerator-background-Final.png'
+        self.background_image = Image.open(background_image_path)
+        self.original_bg_width, self.original_bg_height = self.background_image.size
+        self.original_background_surface = pygame.image.fromstring(self.background_image.tobytes(), self.background_image.size, self.background_image.mode)
 
-# Original image size
-original_bg_width, original_bg_height = background_image.size
+    def scale_images(self):
+        self.background_surface = scale_image(self.original_background_surface, self.screen_width, self.screen_height)
 
-# Create a resizable window with the initial size of 1152x768
-screen_width, screen_height = 1152, 768
-screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
+    def run(self):
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    self.handle_mouse_click()
+                elif event.type == pygame.VIDEORESIZE:
+                    self.handle_resize(event)
 
-# Convert PIL images to Pygame surfaces and keep a reference to the original
-original_background_surface = pygame.image.fromstring(background_image.tobytes(), background_image.size, background_image.mode)
-original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size, character_image.mode)
+            self.draw()
+            pygame.display.flip()
+            pygame.time.wait(50)
 
-character_scale_factor = 1  # Scale the character to 30% of the screen height
+        pygame.quit()
 
-# Scale images initially
-background_surface = scale_image(original_background_surface, screen_width, screen_height)
-character_surface = scale_image(original_character_surface, original_character_surface.get_width(), screen_height * character_scale_factor)
+    def handle_mouse_click(self):
+        if self.dialogue_position < len(self.full_dialogue):
+            self.dialogue_position = len(self.full_dialogue)
+        else:
+            self.load_next_dialogue()
 
-# Set up the font once, so you don't have to create it every frame
-font = pygame.font.SysFont(None, int(screen_height * 0.04))
+    def load_next_dialogue(self):
+        self.full_dialogue = "New piece of dialogue..."
+        self.dialogue_position = 0
+        # Randomly load or clear characters for demonstration
+        if random.choice([True, False]):
+            self.load_random_character('left')
+        else:
+            self.clear_character('left')
+        if random.choice([True, False]):
+            self.load_random_character('center')
+        else:
+            self.clear_character('center')
+        if random.choice([True, False]):
+            self.load_random_character('right')
+        else:
+            self.clear_character('right')
 
-# Define the full dialogue and a variable to keep track of the current position
-full_dialogue = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
-dialogue_position = 0  # Keeps track of which character we're up to in the typewriter effect
+    def load_character(self, position, character_path, expression):
+        image_path = f"{character_path}/dialogue-{expression}.png"
+        character_image = Image.open(image_path)
+        original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size, character_image.mode)
+        character_surface = scale_image(original_character_surface, original_character_surface.get_width(), self.screen_height * self.character_scale_factor)
+        self.characters[position] = character_surface
 
-# play the music
-pygame.mixer.music.load('Guitar on the Water.ogg')
-pygame.mixer.music.play(-1)
+    def clear_character(self, position):
+        self.characters[position] = None
 
+    def change_background(self, new_background_path):
+        self.background_image = Image.open(new_background_path)
+        self.original_bg_width, self.original_bg_height = self.background_image.size
+        self.original_background_surface = pygame.image.fromstring(self.background_image.tobytes(),
+                                                                   self.background_image.size,
+                                                                   self.background_image.mode)
+        self.scale_images()  # Rescale the new background
 
-# Main game loop
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            # If the mouse is clicked and we're not at the end of the dialogue
-            if dialogue_position < len(full_dialogue):
-                # Jump to the end of the current dialogue
-                dialogue_position = len(full_dialogue)
-            else:
-                # Load the next piece of dialogue here
-                full_dialogue = "New piece of dialogue..."
-                dialogue_position = 0
-                # load a different character image here (randomly, or based on the dialogue)
-                # select a random character image between 1 and 3
-                random_character_image = random.randint(1, 7)
-                if random_character_image == 1:
-                    character_image = Image.open('VNImageGenerator-Character-Happy.png')
-                elif random_character_image == 2:
-                    character_image = Image.open('VNImageGenerator-Character-sad.png')
-                elif random_character_image == 3:
-                    character_image = Image.open('VNImageGenerator-Character-embarrassed.png')
-                elif random_character_image == 4:
-                    character_image = Image.open('VNImageGenerator-Character-smug.png')
-                elif random_character_image == 5:
-                    character_image = Image.open('VNImageGenerator-Character-neutral.png')
-                elif random_character_image == 6:
-                    character_image = Image.open('VNImageGenerator-Character-angry.png')
-                elif random_character_image == 7:
-                    character_image = Image.open('VNImageGenerator-Character-surprised.png')
+    def change_music(self, music_path):
+        pygame.mixer.music.stop()  # Stop the current music
+        pygame.mixer.music.load(music_path)
+        pygame.mixer.music.play(-1)  # Play the new track
 
-                # Convert PIL images to Pygame surfaces and keep a reference to the original
-                original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size, character_image.mode)
-                character_surface = scale_image(original_character_surface, original_character_surface.get_width(),
-                                                screen_height * character_scale_factor)
+    def load_random_character(self, position):
+        character_image_path = "output/Hikari_Yumeno"
+        expressions = ["cry", "angry", "smile", "neutral", "disappointed",
+                              "blush", "scared", "laugh", "yell"]
+        expression = random.choice(expressions)
+        self.load_character(position, character_image_path, expression)
 
+    def handle_resize(self, event):
+        new_width, new_height = event.size
+        self.screen_width, self.screen_height = maintain_aspect_ratio(self.original_bg_width, self.original_bg_height, new_width, new_height)
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+        self.scale_images()
 
-        elif event.type == pygame.VIDEORESIZE:
-            # Window has been resized, adjust to maintain aspect ratio
-            new_width, new_height = event.size
-            screen_width, screen_height = maintain_aspect_ratio(original_bg_width, original_bg_height, new_width, new_height)
-            screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
-            background_surface = scale_image(background_surface, screen_width, screen_height)
-            # Re-scale the background and character from their original surfaces
-            background_surface = scale_image(original_background_surface, screen_width, screen_height)
-            character_surface = scale_image(original_character_surface, original_character_surface.get_width(),
-                                            screen_height * character_scale_factor)
+    def draw(self):
+        self.screen.blit(self.background_surface, (0, 0))
+        self.draw_characters()
+        self.draw_text_box()
 
-    # Drawing the background
-    screen.blit(background_surface, (0, 0))
+    def draw_characters(self):
+        positions = {'left': 0.0, 'center': 0.3, 'right': 0.6}
+        for position, character_surface in self.characters.items():
+            if character_surface:
+                char_x, char_y = self.screen_width * positions[position], self.screen_height - character_surface.get_height()
+                self.screen.blit(character_surface, (char_x, char_y))
 
-    # Drawing the character
-    char_x, char_y = screen_width * 0.3, screen_height - character_surface.get_height()
-    screen.blit(character_surface, (char_x, char_y))
+    def draw_text_box(self):
+        text_box_x, text_box_y = self.screen_width * 0.05, self.screen_height * 0.75
+        text_box_width, text_box_height = self.screen_width * 0.9, self.screen_height * 0.2
+        text_box_rect = pygame.Rect(text_box_x, text_box_y, text_box_width, text_box_height)
+        render_multiline_text(self.screen, self.full_dialogue[:self.dialogue_position], text_box_rect, self.font, padding=20)
+        if self.dialogue_position < len(self.full_dialogue):
+            self.dialogue_position += 1
 
-    # Drawing the translucent text box with padding and multiline text
-    text_box_x, text_box_y = screen_width * 0.05, screen_height * 0.75
-    text_box_width, text_box_height = screen_width * 0.9, screen_height * 0.2
-    text_box_rect = pygame.Rect(text_box_x, text_box_y, text_box_width, text_box_height)
-    render_multiline_text(screen, full_dialogue[:dialogue_position], text_box_rect, font,
-                          padding=20)  # Padding set to 20 pixels
-
-    # Update the dialogue position, but not past the end of the dialogue
-    if dialogue_position < len(full_dialogue):
-        dialogue_position += 1
-
-    # Update the display
-    pygame.display.flip()
-    pygame.time.wait(50)  # Wait a bit before drawing the next character
-
-pygame.quit()
+if __name__ == "__main__":
+    initial_background = 'output/VNImageGenerator-background-Final.png'
+    initial_music = 'Shenanigans!.ogg'
+    game = VisualNovelGame(initial_background, initial_music)
+    game.run()
