@@ -174,7 +174,7 @@ class VNImageGenerator:
             negative_prompt, prompt = self.build_character_prompt(prompt_data, save_intermediate=save_intermediate)
             height = prompt_data.get("height", 768)
             width = prompt_data.get("width", 512)
-        elif "scene_base" in prompt_data:
+        elif "scene_description" in prompt_data:
             negative_prompt, prompt = self.build_scene_prompt(prompt_data)
             height = prompt_data.get("height", 512)
             width = prompt_data.get("width", 768)
@@ -311,15 +311,30 @@ class VNImageGenerator:
 
     def build_scene_prompt(self, prompt_data):
         # building the prompt
-        scene_base = prompt_data["scene_base"]
         scene = prompt_data["scene_description"]
         image_quality = prompt_data["image_quality"]
         negative_prompt = prompt_data.get("negative_prompt", None)
         if negative_prompt is None:
             negative_prompt = "(worst quality, low quality:1.4)"
         utility_instructions = "4K, high resolution"
-        prompt = f"{scene_base}, {scene}, {image_quality}, {utility_instructions}"
+        prompt = f"{scene}, {image_quality}, {utility_instructions}"
         return negative_prompt, prompt
+
+    def generate_background_image(self, scene_name, scene_description, save_intermediate=False):
+        prompt_json = '''
+                        {
+                          "image_quality": "intricate, visual novel style, beautiful, masterpiece"
+                        }
+                        '''
+
+        prompt_data = json.loads(prompt_json)
+        prompt_data["scene_description"] = scene_description
+
+        self.enable_tranparent_background(False)
+        low_res_latents = self.text_to_image(prompt_data)
+        scene_img = self.latent_upscale_and_refine(low_res_latents, prompt_data,
+                                                        save_intermediate=save_intermediate)
+        scene_img.save(f"{self.output_folder}/{scene_name}.png")
 
     def generate_character_images(self, character_prompt_json, save_intermediate=False):
         # Generate image
@@ -434,18 +449,10 @@ if __name__ == '__main__':
         image.save(f"{generator.output_folder}/VNImageGenerator-CG-Final.png")
 
     if scene_test:
-        prompt_json = '''
-                {
-                  "scene_base": "outdoor scene",
-                  "scene_description": "by the seaside, in modern japan",
-                  "image_quality": "intricate, visual novel style, beautiful, masterpiece"
-                }
-                '''
-        prompt_data = json.loads(prompt_json)
-        generator.enable_tranparent_background(False)
-        low_res_latents = generator.text_to_image(prompt_data)
-        scene_img = generator.latent_upscale_and_refine(low_res_latents, prompt_data, save_intermediate=True)
-        scene_img.save(f"{generator.output_folder}/VNImageGenerator-background-Final.png")
+        save_intermediate = True
+        scene_name = "seaside"
+        scene_description = "by the seaside, in modern japan"
+
 
     if composition_test:
         if character_img is not None and scene_img is not None:

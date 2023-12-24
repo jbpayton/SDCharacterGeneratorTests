@@ -3,11 +3,13 @@ import pygame
 from PIL import Image
 from PyGameHelpers import scale_image, maintain_aspect_ratio, render_multiline_text
 from PyGameTransitions import FadeInCharacter, FadeOutCharacter, Dissolve
-
+from VNScriptParser import VNScriptParser
 
 class VisualNovelGame:
-    def __init__(self, initial_background_path, initial_music_path):
+    def __init__(self, initial_background_path, initial_script, initial_music_path):
         pygame.init()
+
+        self.script_parser = VNScriptParser(initial_script)
 
         self.screen_width, self.screen_height = 1152, 768
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
@@ -75,32 +77,26 @@ class VisualNovelGame:
         if self.dialogue_position < len(self.full_dialogue):
             self.dialogue_position = len(self.full_dialogue)
         else:
-            self.load_next_dialogue()
+            new_text = False
+            while not new_text:
+                new_text = self.script_parser.get_next_line(self)
 
-    def load_next_dialogue(self):
-        self.full_dialogue = "New piece of dialogue..."
+    def load_next_dialogue(self, text, speaker=None):
+        if speaker is None:
+            self.full_dialogue = f"{text}"
+        else:
+            self.full_dialogue = f"{speaker}: {text}"
         self.dialogue_position = 0
-        # Randomly load or clear characters for demonstration
-        if random.choice([True, False]):
-            self.load_random_character('left')
-        else:
-            self.clear_character('left')
-        if random.choice([True, False]):
-            self.load_random_character('center')
-        else:
-            self.clear_character('center')
-        if random.choice([True, False]):
-            self.load_random_character('right')
-        else:
-            self.clear_character('right', transition=FadeOutCharacter())
 
-    def load_character(self, position, character_path, expression, transition=None):
+    def load_character(self, position, character_path, expression, facing_direction="left", transition=None):
         image_path = f"{character_path}/dialogue-{expression}.png"
         character_image = Image.open(image_path)
         original_character_surface = pygame.image.fromstring(character_image.tobytes(), character_image.size,
                                                              character_image.mode)
         character_surface = scale_image(original_character_surface, original_character_surface.get_width(),
                                         self.screen_height * self.character_scale_factor)
+        if facing_direction == "right":
+            character_surface = pygame.transform.flip(character_surface, True, False)
 
         self.characters[position] = character_surface
 
@@ -179,7 +175,8 @@ class VisualNovelGame:
 if __name__ == "__main__":
     initial_background = 'output/VNImageGenerator-background-Final.png'
     initial_music = 'Shenanigans!.ogg'
-    game = VisualNovelGame(None, initial_music)
+    initial_script = 'output/scene.json'
+    game = VisualNovelGame(None, initial_script, initial_music)
 
     game.transition_to_new_background('output/VNImageGenerator-background-Final.png', Dissolve())
 
